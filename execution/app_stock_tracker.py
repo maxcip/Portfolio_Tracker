@@ -92,6 +92,61 @@ def get_current_data(ticker):
     except:
         return None, None, None, None
 
+# --- Technical Analysis Helper ---
+def calculate_technical_signal(hist):
+    """
+    Calculates signal based on provided history dataframe (must have 'Close').
+    Returns: (Signal, Reason)
+    """
+    if len(hist) < 50:
+        return "N/A", "Dati insufficienti (>50 periodi)"
+
+    # Calculate indicators on the fly
+    hist = hist.copy()
+    hist['SMA_20'] = hist['Close'].rolling(window=20).mean()
+    hist['SMA_50'] = hist['Close'].rolling(window=50).mean()
+    
+    delta = hist['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    hist['RSI'] = 100 - (100 / (1 + (gain / loss)))
+
+    # Get last values
+    last_close = hist['Close'].iloc[-1]
+    last_sma20 = hist['SMA_20'].iloc[-1]
+    last_sma50 = hist['SMA_50'].iloc[-1]
+    last_rsi = hist['RSI'].iloc[-1]
+
+    # Logic
+    signal = "HOLD"
+    reason = "Neutrale"
+    
+    if (last_close > last_sma20 and last_close > last_sma50):
+        signal = "BUY"
+        reason = "Trend Rialzista"
+    elif last_rsi < 30:
+        signal = "BUY"
+        reason = "Ipervenduto (RSI<30)"
+    elif last_close < last_sma50:
+        signal = "SELL"
+        reason = "Trend Ribassista"
+    elif last_rsi > 70:
+        signal = "SELL"
+        reason = "Ipercomprato (RSI>70)"
+        
+    return signal, reason
+
+def get_signal_for_dashboard(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        # Fetch enough history for SMA50 + buffer
+        hist = stock.history(period="6mo") 
+        if hist.empty:
+            return "N/A", ""
+        return calculate_technical_signal(hist)
+    except:
+        return "N/A", "Errore Dati"
+
 # --- AI Helper ---
 def ask_gemini(prompt):
     if not GEMINI_API_KEY:
@@ -125,6 +180,7 @@ def render_dashboard(portfolio_df):
         pmc = row['PMC']
         
         current_price, change_pct, name, q_type = get_current_data(ticker)
+        signal, reason = get_signal_for_dashboard(ticker) # Fetch Signal
         
         progress_bar.progress((i + 1) / len(portfolio_df))
         
@@ -150,6 +206,7 @@ def render_dashboard(portfolio_df):
             "Tipo": display_type,
             "Prezzo": current_price,
             "Var % 1d": change_pct,
+            "Previsione": signal,
             "PMC": pmc,
             "Quantità": qty,
             "Valore": value,
@@ -190,6 +247,11 @@ def render_dashboard(portfolio_df):
         def color_pl(val):
             color = 'green' if val >= 0 else 'red'
             return f'color: {color}'
+        
+        def color_signal(val):
+            if val == "BUY": return 'color: green; font-weight: bold'
+            if val == "SELL": return 'color: red; font-weight: bold'
+            return 'color: gray'
 
         # Format for nicer display
         st.dataframe(df_display.style.format({
@@ -199,7 +261,8 @@ def render_dashboard(portfolio_df):
             "Valore": "{:.2f}",
             "P/L €": "{:+.2f}",
             "P/L %": "{:+.2f}%"
-        }).map(color_pl, subset=["P/L €", "P/L %", "Var % 1d"]))
+        }).map(color_pl, subset=["P/L €", "P/L %", "Var % 1d"])
+          .map(color_signal, subset=["Previsione"]))
 
     # Pie Chart
     st.subheader("Allocazione Asset")
@@ -258,21 +321,8 @@ def render_stock_detail(ticker, pmc, quantity):
         last_sma50 = hist['SMA_50'].iloc[-1]
         last_rsi = hist['RSI'].iloc[-1]
 
-        signal = "HOLD"
-        reason = "Nessun segnale forte."
-        
-        if (last_close > last_sma20 and last_close > last_sma50):
-            signal = "BUY"
-            reason = "Trend Rialzista (Prezzo > SMA20/50)."
-        elif last_rsi < 30:
-            signal = "BUY"
-            reason = "Ipervenduto (RSI < 30)."
-        elif last_close < last_sma50:
-            signal = "SELL"
-            reason = "Trend Ribassista (Prezzo < SMA50)."
-        elif last_rsi > 70:
-            signal = "SELL"
-            reason = "Ipercomprato (RSI > 70)."
+        # Use shared Helper
+        signal, reason = calculate_technical_signal(hist)
 
         if signal == "BUY": st.success(f"**{signal}**: {reason}")
         elif signal == "SELL": st.error(f"**{signal}**: {reason}")
