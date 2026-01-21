@@ -8,9 +8,40 @@ from dotenv import load_dotenv
 # Load Environment Variables
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+APP_PASSWORD = os.getenv("APP_PASSWORD")
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
+
+# --- Authentication ---
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    if not APP_PASSWORD:
+        return True # No password set, allow access
+
+    def password_entered():
+        if st.session_state["password"] == APP_PASSWORD:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # don't store password
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # First run, show input
+        st.text_input(
+            "Password", type="password", on_change=password_entered, key="password"
+        )
+        return False
+    elif not st.session_state["password_correct"]:
+        # Password incorrect, show input + error
+        st.text_input(
+            "Password", type="password", on_change=password_entered, key="password"
+        )
+        st.error("😕 Password errata")
+        return False
+    else:
+        # Password correct
+        return True
 
 # Constants
 PORTFOLIO_FILE = "portfolio.csv"
@@ -367,6 +398,9 @@ def render_stock_detail(ticker, pmc, quantity):
 # --- Main App Orchestrator ---
 def main():
     st.set_page_config(page_title="Portfolio Manager", page_icon="💼", layout="wide")
+    
+    if not check_password():
+        st.stop()
     
     # Load Data
     portfolio = load_portfolio()
