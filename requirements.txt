@@ -1,6 +1,7 @@
 streamlit
 yfinance
 pandas
-google-generativeai
+groq
 python-dotenv
 watchdog
+streamlit-cookies-manager

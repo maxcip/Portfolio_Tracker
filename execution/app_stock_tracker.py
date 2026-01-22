@@ -2,46 +2,74 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import os
-import google.generativeai as genai
+import time
+import hashlib
+from datetime import datetime
+from groq import Groq
 from dotenv import load_dotenv
+from streamlit_cookies_manager import EncryptedCookieManager
 
 # Load Environment Variables
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 APP_PASSWORD = os.getenv("APP_PASSWORD")
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+# Initialize Groq client
+groq_client = None
+if GROQ_API_KEY:
+    groq_client = Groq(api_key=GROQ_API_KEY)
+
+# Initialize cookies manager (persistent across page reloads)
+cookies = EncryptedCookieManager(
+    prefix="portfolio_app_",
+    password="portfolio_secret_key_12345"  # Cookie encryption key
+)
+
+if not cookies.ready():
+    st.stop()
 
 # --- Authentication ---
 def check_password():
-    """Returns `True` if the user had the correct password."""
+    """Returns `True` if the user had the correct password. Uses cookies for persistence."""
     if not APP_PASSWORD:
         return True # No password set, allow access
 
+    # Generate expected auth token
+    expected_token = hashlib.sha256(APP_PASSWORD.encode()).hexdigest()
+    
+    # Check if already authenticated via cookie
+    if cookies.get("auth_token") == expected_token:
+        return True
+    
     def password_entered():
-        if st.session_state["password"] == APP_PASSWORD:
+        # Use .get() for safe access - prevents KeyError
+        entered_password = st.session_state.get("password", "")
+        
+        if entered_password == APP_PASSWORD:
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # don't store password
+            # Save auth token in cookie (persists across page reloads)
+            cookies["auth_token"] = expected_token
+            cookies.save()
         else:
             st.session_state["password_correct"] = False
 
-    if "password_correct" not in st.session_state:
-        # First run, show input
-        st.text_input(
-            "Password", type="password", on_change=password_entered, key="password"
-        )
-        return False
-    elif not st.session_state["password_correct"]:
-        # Password incorrect, show input + error
-        st.text_input(
-            "Password", type="password", on_change=password_entered, key="password"
-        )
-        st.error("😕 Password errata")
-        return False
-    else:
-        # Password correct
+    # Check authentication status  
+    if st.session_state.get("password_correct", False):
         return True
+    
+    # Show password input
+    st.text_input(
+        "Password", 
+        type="password", 
+        on_change=password_entered, 
+        key="password"
+    )
+    
+    # Show error if password was incorrect
+    if st.session_state.get("password_correct") == False:
+        st.error("😕 Password errata")
+    
+    return False
 
 # Constants
 PORTFOLIO_FILE = "portfolio.csv"
@@ -180,12 +208,24 @@ def get_signal_for_dashboard(ticker):
 
 # --- AI Helper ---
 def ask_gemini(prompt):
-    if not GEMINI_API_KEY:
-        return "⚠️ API Key mancante. Inserisci GEMINI_API_KEY nel file .env"
+    """Uses Groq API for AI analysis (kept function name for compatibility)"""
+    if not GROQ_API_KEY:
+        return "⚠️ API Key mancante. Inserisci GROQ_API_KEY nel file .env"
+    if not groq_client:
+        return "⚠️ Client Groq non inizializzato. Verifica GROQ_API_KEY nel file .env"
     try:
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        response = model.generate_content(prompt)
-        return response.text
+        chat_completion = groq_client.chat.completions.create(
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.7,
+            max_tokens=1024,
+        )
+        return chat_completion.choices[0].message.content
     except Exception as e:
         return f"Errore AI: {e}"
 
@@ -402,11 +442,26 @@ def main():
     if not check_password():
         st.stop()
     
+    # Auto-refresh every 60 seconds
+    if 'last_refresh' not in st.session_state:
+        st.session_state.last_refresh = time.time()
+    
+    current_time = time.time()
+    time_since_refresh = current_time - st.session_state.last_refresh
+    
+    # Auto-refresh after 60 seconds
+    if time_since_refresh >= 60:
+        st.session_state.last_refresh = current_time
+        st.rerun()
+    
     # Load Data
     portfolio = load_portfolio()
 
     # --- SIDEBAR ---
     st.sidebar.title("💼 Portafoglio")
+    
+    # Display last update time in sidebar (after title)
+    st.sidebar.caption(f"🕐 Ultimo aggiornamento: {datetime.fromtimestamp(st.session_state.last_refresh).strftime('%H:%M:%S')}")
     
     # Navigation
     nav_options = ["VISTA GENERALE"] + portfolio['Ticker'].tolist()
