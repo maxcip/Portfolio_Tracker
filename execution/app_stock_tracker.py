@@ -123,15 +123,21 @@ def get_current_data(ticker):
              if previous_close:
                  change_pct = ((price - previous_close) / previous_close) * 100
         
+        # Volume
+        volume = info.get('volume') or info.get('regularMarketVolume')
+        
         # Name and Type
         name = info.get('longName') or info.get('shortName') or ticker
         q_type = info.get('quoteType', 'N/A')
         
         # Fallback to history if info fails
-        if not price:
+        if not price or volume is None:
             hist = stock.history(period="1d")
             if not hist.empty:
-                price = hist['Close'].iloc[-1]
+                if not price:
+                    price = hist['Close'].iloc[-1]
+                if volume is None and 'Volume' in hist.columns:
+                    volume = hist['Volume'].iloc[-1]
                 # Try to calculate change from history if not available (approximate)
                 if change_pct is None:
                      # This is trickier with just 1d history, usually need 2d to get prev close
@@ -141,15 +147,19 @@ def get_current_data(ticker):
                          prev_close = hist_2d['Close'].iloc[-2]
                          change_pct = ((price - prev_close) / prev_close) * 100
             else:
-                return None, None, None, None
+                return None, None, None, None, None
         
         # Ensure change_pct is not None for display (default to 0.0 if missing)
         if change_pct is None:
             change_pct = 0.0
+        
+        # Ensure volume is not None (default to 0 if missing)
+        if volume is None:
+            volume = 0
 
-        return price, change_pct, name, q_type
+        return price, change_pct, name, q_type, volume
     except:
-        return None, None, None, None
+        return None, None, None, None, None
 
 # --- Technical Analysis Helper ---
 def calculate_technical_signal(hist):
@@ -250,7 +260,7 @@ def render_dashboard(portfolio_df):
         qty = row['Quantity']
         pmc = row['PMC']
         
-        current_price, change_pct, name, q_type = get_current_data(ticker)
+        current_price, change_pct, name, q_type, volume = get_current_data(ticker)
         signal, reason = get_signal_for_dashboard(ticker) # Fetch Signal
         
         progress_bar.progress((i + 1) / len(portfolio_df))
@@ -276,6 +286,7 @@ def render_dashboard(portfolio_df):
             "Nome": name,
             "Tipo": display_type,
             "Prezzo": current_price,
+            "Volume": volume,
             "Var % 1d": change_pct,
             "Previsione": signal,
             "PMC": pmc,
@@ -327,6 +338,7 @@ def render_dashboard(portfolio_df):
         # Format for nicer display
         st.dataframe(df_display.style.format({
             "Prezzo": "{:.4f}",
+            "Volume": "{:,.0f}",
             "Var % 1d": "{:+.2f}%",
             "PMC": "{:.4f}",
             "Valore": "{:.2f}",
