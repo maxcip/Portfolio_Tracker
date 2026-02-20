@@ -248,6 +248,8 @@ def render_dashboard(portfolio_df):
         st.info("Il portafoglio è vuoto. Aggiungi titoli dalla barra laterale.")
         return
 
+
+
     # Calculate Totals
     total_invested = 0.0
     total_value = 0.0
@@ -347,15 +349,28 @@ def render_dashboard(portfolio_df):
         }).map(color_pl, subset=["P/L €", "P/L %", "Var % 1d"])
           .map(color_signal, subset=["Previsione"]))
 
-    # Pie Chart
-    st.subheader("Allocazione Asset")
+    # Price Trend Chart
+    trend_period = st.selectbox("Periodo Grafico", ("1mo", "3mo", "6mo", "1y", "2y", "5y", "max"), index=3, key="dashboard_period")
+    st.subheader(f"📈 Andamento Prezzo ({trend_period})")
     if not df_display.empty:
-        st.bar_chart(df_display.set_index("Ticker")["Valore"])
-
+        trend_data = pd.DataFrame()
+        for ticker in df_display["Ticker"].tolist():
+            try:
+                hist = yf.Ticker(ticker).history(period=trend_period)
+                if not hist.empty:
+                    start_price = hist['Close'].iloc[0]
+                    trend_data[ticker] = ((hist['Close'] / start_price) - 1) * 100
+            except:
+                pass
+        if not trend_data.empty:
+            st.line_chart(trend_data, use_container_width=True)
+            st.caption("Variazione % dal primo giorno del periodo")
+        else:
+            st.info("Nessun dato storico disponibile.")
 
 def render_stock_detail(ticker, pmc, quantity):
     st.header(f"📈 Analisi Titolo: {ticker}")
-    
+
     # Inputs for analysis
     c1, c2 = st.columns([1, 1])
     with c1:
@@ -388,6 +403,8 @@ def render_stock_detail(ticker, pmc, quantity):
                           delta_color="normal")
             st.caption(f"Possiedi **{quantity}** azioni con PMC **{pmc}**")
 
+
+
         # --- Technical Analysis Calculations ---
         hist['SMA_20'] = hist['Close'].rolling(window=20).mean()
         hist['SMA_50'] = hist['Close'].rolling(window=50).mean()
@@ -410,6 +427,23 @@ def render_stock_detail(ticker, pmc, quantity):
         if signal == "BUY": st.success(f"**{signal}**: {reason}")
         elif signal == "SELL": st.error(f"**{signal}**: {reason}")
         else: st.warning(f"**{signal}**: {reason}")
+
+        # --- Price Trend Chart ---
+        st.subheader(f"📈 Andamento Prezzo ({period})")
+        start_price = hist['Close'].iloc[0]
+        trend_pct = ((hist['Close'] / start_price) - 1) * 100
+        st.line_chart(trend_pct, use_container_width=True)
+        st.caption("Variazione % dal primo giorno del periodo")
+
+        # --- Charts ---
+        st.subheader(f"Grafico Prezzo ({period})")
+        chart_data = hist[['Close', 'SMA_20', 'SMA_50']].copy()
+        if pmc > 0:
+            chart_data['Load Price'] = pmc
+        st.line_chart(chart_data)
+
+        st.subheader("RSI")
+        st.line_chart(hist['RSI'])
 
         # AI Button
         if st.button(f"🤖 Chiedi Analisi AI su {ticker}"):
@@ -434,15 +468,7 @@ def render_stock_detail(ticker, pmc, quantity):
         k2.metric("Stop Loss (-3%)", f"{sl_price:.4f}", delta="-3%", delta_color="inverse")
         k3.metric("Take Profit (+6%)", f"{tp_price:.4f}", delta="+6%")
 
-        # --- Charts ---
-        st.subheader(f"Grafico Prezzo ({period})")
-        chart_data = hist[['Close', 'SMA_20', 'SMA_50']].copy()
-        if pmc > 0:
-            chart_data['Load Price'] = pmc
-        st.line_chart(chart_data)
 
-        st.subheader("RSI")
-        st.line_chart(hist['RSI'])
 
     except Exception as e:
         st.error(f"Errore: {e}")
