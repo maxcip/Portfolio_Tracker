@@ -363,7 +363,7 @@ def render_dashboard(portfolio_df):
             except:
                 pass
         if not trend_data.empty:
-            st.line_chart(trend_data, use_container_width=True)
+            st.line_chart(trend_data, use_container_width=True, y_label="Variazione (%)")
             st.caption("Variazione % dal primo giorno del periodo")
         else:
             st.info("Nessun dato storico disponibile.")
@@ -429,18 +429,16 @@ def render_stock_detail(ticker, pmc, quantity):
         else: st.warning(f"**{signal}**: {reason}")
 
         # --- Price Trend Chart ---
-        st.subheader(f"📈 Andamento Prezzo ({period})")
-        start_price = hist['Close'].iloc[0]
-        trend_pct = ((hist['Close'] / start_price) - 1) * 100
-        st.line_chart(trend_pct, use_container_width=True)
-        st.caption("Variazione % dal primo giorno del periodo")
+        st.subheader(f"📈 Andamento Prezzo in € ({period})")
+        st.line_chart(hist['Close'], use_container_width=True, y_label="Prezzo (€)")
+        st.caption("Prezzo di chiusura in €")
 
         # --- Charts ---
         st.subheader(f"Grafico Prezzo ({period})")
         chart_data = hist[['Close', 'SMA_20', 'SMA_50']].copy()
         if pmc > 0:
             chart_data['Load Price'] = pmc
-        st.line_chart(chart_data)
+        st.line_chart(chart_data, y_label="Prezzo (€)")
 
         st.subheader("RSI")
         st.line_chart(hist['RSI'])
