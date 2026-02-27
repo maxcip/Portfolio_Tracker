@@ -5,3 +5,4 @@ groq
 python-dotenv
 watchdog
 streamlit-cookies-manager
+streamlit-autorefresh
