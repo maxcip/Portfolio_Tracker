@@ -5,6 +5,7 @@ import os
 import time
 import hashlib
 from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
 from groq import Groq
 from dotenv import load_dotenv
 from streamlit_cookies_manager import EncryptedCookieManager
@@ -478,17 +479,9 @@ def main():
     if not check_password():
         st.stop()
     
-    # Auto-refresh every 60 seconds
-    if 'last_refresh' not in st.session_state:
-        st.session_state.last_refresh = time.time()
-    
-    current_time = time.time()
-    time_since_refresh = current_time - st.session_state.last_refresh
-    
-    # Auto-refresh after 60 seconds
-    if time_since_refresh >= 60:
-        st.session_state.last_refresh = current_time
-        st.rerun()
+    # Auto-refresh every 60 seconds (60000 ms)
+    st_autorefresh(interval=60000, limit=0, key="auto_refresh")
+    st.session_state.last_refresh = time.time()
     
     # Load Data
     portfolio = load_portfolio()
