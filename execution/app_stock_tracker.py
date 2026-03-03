@@ -80,7 +80,7 @@ def load_portfolio():
     if os.path.exists(PORTFOLIO_FILE):
         return pd.read_csv(PORTFOLIO_FILE)
     else:
-        return pd.DataFrame(columns=["Ticker", "PMC", "Quantity"])
+        return pd.DataFrame(columns=["ISIN", "PMC", "Quantity"])
 
 def save_portfolio(df):
     df.to_csv(PORTFOLIO_FILE, index=False)
@@ -91,22 +91,22 @@ def add_asset(ticker, pmc, qty):
     # Normalize input
     ticker = ticker.strip().upper()
     
-    # Ensure Ticker column is string and normalized (just in case)
+    # Ensure ISIN column is string and normalized (just in case)
     if not df.empty:
-        df['Ticker'] = df['Ticker'].astype(str).str.strip().str.upper()
+        df['ISIN'] = df['ISIN'].astype(str).str.strip().str.upper()
 
     # Check if ticker exists
-    if ticker in df['Ticker'].values:
-        df.loc[df['Ticker'] == ticker, 'PMC'] = pmc
-        df.loc[df['Ticker'] == ticker, 'Quantity'] = qty
+    if ticker in df['ISIN'].values:
+        df.loc[df['ISIN'] == ticker, 'PMC'] = pmc
+        df.loc[df['ISIN'] == ticker, 'Quantity'] = qty
     else:
-        new_row = pd.DataFrame({"Ticker": [ticker], "PMC": [pmc], "Quantity": [qty]})
+        new_row = pd.DataFrame({"ISIN": [ticker], "PMC": [pmc], "Quantity": [qty]})
         df = pd.concat([df, new_row], ignore_index=True)
     save_portfolio(df)
 
 def remove_asset(ticker):
     df = load_portfolio()
-    df = df[df['Ticker'] != ticker]
+    df = df[df['ISIN'] != ticker]
     save_portfolio(df)
 
 # --- Fetch Data Helper ---
@@ -116,6 +116,14 @@ def get_current_data(ticker):
         # Fast info
         info = stock.info
         price = info.get('currentPrice') or info.get('regularMarketPrice') or info.get('price')
+        
+        # ISIN
+        try:
+            isin = stock.isin
+            if isin == "-" or not isin:
+                isin = "N/D"
+        except:
+            isin = "N/D"
         
         # Daily Change
         change_pct = info.get('regularMarketChangePercent')
@@ -148,7 +156,7 @@ def get_current_data(ticker):
                          prev_close = hist_2d['Close'].iloc[-2]
                          change_pct = ((price - prev_close) / prev_close) * 100
             else:
-                return None, None, None, None, None
+                return None, None, None, None, None, None
         
         # Ensure change_pct is not None for display (default to 0.0 if missing)
         if change_pct is None:
@@ -158,9 +166,9 @@ def get_current_data(ticker):
         if volume is None:
             volume = 0
 
-        return price, change_pct, name, q_type, volume
+        return price, change_pct, name, q_type, volume, isin
     except:
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
 # --- Technical Analysis Helper ---
 def calculate_technical_signal(hist):
@@ -259,11 +267,11 @@ def render_dashboard(portfolio_df):
 
     progress_bar = st.progress(0)
     for i, row in portfolio_df.iterrows():
-        ticker = row['Ticker']
+        ticker = row['ISIN']
         qty = row['Quantity']
         pmc = row['PMC']
         
-        current_price, change_pct, name, q_type, volume = get_current_data(ticker)
+        current_price, change_pct, name, q_type, volume, isin = get_current_data(ticker)
         signal, reason = get_signal_for_dashboard(ticker) # Fetch Signal
         
         progress_bar.progress((i + 1) / len(portfolio_df))
@@ -285,7 +293,7 @@ def render_dashboard(portfolio_df):
         display_type = type_map.get(q_type, q_type)
 
         portfolio_data.append({
-            "Ticker": ticker,
+            "ISIN": ticker,
             "Nome": name,
             "Tipo": display_type,
             "Prezzo": current_price,
@@ -355,7 +363,7 @@ def render_dashboard(portfolio_df):
     st.subheader(f"📈 Andamento Prezzo ({trend_period})")
     if not df_display.empty:
         trend_data = pd.DataFrame()
-        for ticker in df_display["Ticker"].tolist():
+        for ticker in portfolio_df["ISIN"].tolist():
             try:
                 hist = yf.Ticker(ticker).history(period=trend_period)
                 if not hist.empty:
@@ -429,21 +437,6 @@ def render_stock_detail(ticker, pmc, quantity):
         elif signal == "SELL": st.error(f"**{signal}**: {reason}")
         else: st.warning(f"**{signal}**: {reason}")
 
-        # --- Price Trend Chart ---
-        st.subheader(f"📈 Andamento Prezzo in € ({period})")
-        st.line_chart(hist['Close'], use_container_width=True, y_label="Prezzo (€)")
-        st.caption("Prezzo di chiusura in €")
-
-        # --- Charts ---
-        st.subheader(f"Grafico Prezzo ({period})")
-        chart_data = hist[['Close', 'SMA_20', 'SMA_50']].copy()
-        if pmc > 0:
-            chart_data['Load Price'] = pmc
-        st.line_chart(chart_data, y_label="Prezzo (€)")
-
-        st.subheader("RSI")
-        st.line_chart(hist['RSI'])
-
         # AI Button
         if st.button(f"🤖 Chiedi Analisi AI su {ticker}"):
             with st.spinner(f"L'AI sta analizzando i dati tecnici di {ticker}..."):
@@ -459,6 +452,23 @@ def render_stock_detail(ticker, pmc, quantity):
                 """
                 ai_response = ask_gemini(prompt)
                 st.info(ai_response)
+
+
+        # --- Price Trend Chart ---
+        st.subheader(f"📈 Andamento Prezzo in € ({period})")
+        st.line_chart(hist['Close'], use_container_width=True, y_label="Prezzo (€)")
+        st.caption("Prezzo di chiusura in €")
+
+        # --- Charts ---
+        st.subheader(f"Grafico Prezzo ({period})")
+        chart_data = hist[['Close', 'SMA_20', 'SMA_50']].copy()
+        if pmc > 0:
+            chart_data['Load Price'] = pmc
+        st.line_chart(chart_data, y_label="Prezzo (€)")
+
+        st.subheader("RSI")
+        st.line_chart(hist['RSI'])
+
 
         sl_price = last_close * 0.97
         tp_price = last_close * 1.06
@@ -480,7 +490,7 @@ def main():
         st.stop()
     
     # Auto-refresh every 60 seconds (60000 ms)
-    st_autorefresh(interval=600000, limit=0, key="auto_refresh")
+    st_autorefresh(interval=60000, limit=0, key="auto_refresh")
     st.session_state.last_refresh = time.time()
     
     # Load Data
@@ -493,7 +503,7 @@ def main():
     st.sidebar.caption(f"🕐 Ultimo aggiornamento: {datetime.fromtimestamp(st.session_state.last_refresh).strftime('%H:%M:%S')}")
     
     # Navigation
-    nav_options = ["VISTA GENERALE"] + portfolio['Ticker'].tolist()
+    nav_options = ["VISTA GENERALE"] + portfolio['ISIN'].tolist()
     selection = st.sidebar.radio("Navigazione", nav_options)
 
     st.sidebar.markdown("---")
@@ -501,7 +511,7 @@ def main():
     # Edit Portfolio Form
     with st.sidebar.expander("➕ Gestisci Titoli"):
         with st.form("add_asset_form"):
-            new_ticker = st.text_input("Ticker (es. TIT.MI)")
+            new_ticker = st.text_input("ISIN (es. IE00BYZK4552)")
             new_pmc = st.number_input("Prezzo Medio Carico", min_value=0.0, step=0.01, format="%.4f")
             new_qty = st.number_input("Quantità", min_value=1, step=1)
             submitted = st.form_submit_button("Aggiungi / Aggiorna")
@@ -512,7 +522,7 @@ def main():
         
         st.write("---")
         with st.form("remove_asset_form"):
-            rem_ticker = st.selectbox("Rimuovi Titolo", portfolio['Ticker'].unique())
+            rem_ticker = st.selectbox("Rimuovi Titolo", portfolio['ISIN'].unique())
             rem_submitted = st.form_submit_button("Rimuovi")
             if rem_submitted:
                 remove_asset(rem_ticker)
@@ -524,8 +534,8 @@ def main():
         render_dashboard(portfolio)
     else:
         # Get data for selected ticker
-        row = portfolio[portfolio['Ticker'] == selection].iloc[0]
-        render_stock_detail(row['Ticker'], row['PMC'], row['Quantity'])
+        row = portfolio[portfolio['ISIN'] == selection].iloc[0]
+        render_stock_detail(row['ISIN'], row['PMC'], row['Quantity'])
 
 if __name__ == "__main__":
     main()
