@@ -480,7 +480,7 @@ def main():
         st.stop()
     
     # Auto-refresh every 60 seconds (60000 ms)
-    st_autorefresh(interval=60000, limit=0, key="auto_refresh")
+    st_autorefresh(interval=300000, limit=0, key="auto_refresh")
     st.session_state.last_refresh = time.time()
     
     # Load Data
